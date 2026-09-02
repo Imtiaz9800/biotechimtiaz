@@ -1,0 +1,128 @@
+// From Supabase schema, assuming standard fields
+type Base = {
+  id: string;
+  created_at: string;
+};
+
+// Company Details Type
+export type CompanyDetails = {
+  id: number;
+  created_at: string;
+  name: string | null;
+  slogan: string | null;
+  address: string | null;
+  gstin: string | null;
+  account_name: string | null;
+  account_number: string | null;
+  account_type: string | null;
+  bank_name: string | null;
+  ifsc_code: string | null;
+};
+export type CompanyDetailsUpdate = Partial<Omit<CompanyDetails, 'id' | 'created_at'>>;
+
+
+// Unit Type
+export type Unit = Base & {
+  name: string;
+  abbreviation: string;
+};
+export type UnitInsert = Omit<Unit, 'id' | 'created_at'>;
+export type UnitUpdate = Partial<UnitInsert>;
+
+// Category Type
+export type Category = Base & {
+  name: string;
+  description: string | null;
+  icon_name: string | null;
+};
+export type CategoryInsert = Omit<Category, 'id' | 'created_at'>;
+export type CategoryUpdate = Partial<CategoryInsert>;
+
+// Based on ProductForm.tsx and ProductsPage.tsx
+export type Product = Base & {
+  name: string;
+  description: string | null;
+  hsn_code: string | null;
+  stock_quantity: number;
+  tax_rate: number; // Stored as decimal, e.g., 0.18 for 18%
+  unit_price: number;
+  unit_id: string | null;
+  category_id: string | null;
+  units?: Pick<Unit, 'abbreviation'> | null;
+  categories?: Pick<Category, 'name' | 'icon_name'> | null;
+};
+export type ProductInsert = Omit<Product, 'id' | 'created_at' | 'units' | 'categories'>;
+export type ProductUpdate = Partial<ProductInsert>;
+
+// Based on CustomerForm.tsx and CustomersPage.tsx
+export type Customer = Base & {
+  name: string;
+  email: string | null;
+  phone: string | null;
+  gst_pan: string | null;
+  billing_address: string | null;
+  is_guest: boolean;
+};
+export type CustomerInsert = Omit<Customer, 'id' | 'created_at'>;
+export type CustomerUpdate = Partial<CustomerInsert>;
+
+// Based on PurchaseForm.tsx and PurchasesPage.tsx
+export type Purchase = Base & {
+  product_id: string;
+  purchase_date: string;
+  reference_invoice: string | null;
+  quantity: number;
+};
+export type PurchaseWithProduct = Purchase & {
+  products: { name: string } | null;
+};
+export type PurchaseInsert = Omit<Purchase, 'id' | 'created_at'>;
+export type PurchaseUpdate = Partial<PurchaseInsert>;
+
+// For InvoicesPage.tsx
+export type InvoiceItem = Base & {
+    invoice_id: string;
+    product_id: string;
+    quantity: number;
+    unit_price: number;
+    tax_rate: number;
+    // Widened the type of products to include 'units' and 'hsn_code' for display on the invoice template.
+    products?: Pick<Product, 'name' | 'hsn_code' | 'units'>; // Optional relation
+};
+
+export type Invoice = Base & {
+    customer_id: string | null;
+    invoice_number: string;
+    invoice_date: string;
+    notes: string | null;
+    total_amount: number;
+    customers?: Pick<Customer, 'name'>; // Optional relation
+    invoice_items?: InvoiceItem[]; // Optional relation
+};
+
+export type InvoiceWithDetails = Invoice & {
+    customers: Pick<Customer, 'name'> | null;
+};
+
+export type InvoiceInsert = Omit<Invoice, 'id' | 'created_at' | 'customers' | 'invoice_items'>;
+export type InvoiceUpdate = Partial<InvoiceInsert>;
+
+// For ProductStockReportPage.tsx
+export type ProductSaleItem = InvoiceItem & {
+  invoices: {
+    invoice_number: string;
+    invoice_date: string;
+    customers: {
+      name: string;
+    } | null;
+  } | null;
+};
+
+// For ReportsPage.tsx export
+export type ExportReportItem = {
+    transaction_date: string;
+    transaction_type: 'Sale' | 'Purchase';
+    reference_number: string | null;
+    product_name: string;
+    quantity_change: number;
+};

@@ -1,0 +1,6 @@
+{
+  "name": "BIOTECHCENTRE",
+  "description": "A comprehensive management system built with React, TypeScript, and Supabase. It includes modules for inventory, customer, purchase, and invoice management, along with reporting and analytics.",
+  "requestFramePermissions": [],
+  "majorCapabilities": []
+}

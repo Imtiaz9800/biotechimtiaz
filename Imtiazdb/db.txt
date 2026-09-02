@@ -1,0 +1,511 @@
+-- Full Supabase Schema for a PUBLIC GST Management System
+-- WARNING: This schema is designed for a fully public, anonymous-write database.
+-- It removes user-specific data ownership, allowing ANYONE to create, read, update, and delete data.
+-- Do NOT use this schema for sensitive or private data.
+--
+-- To use, copy and paste the entire script into the Supabase SQL Editor and run it.
+
+-- 0. Types
+-- The `invoice_status` ENUM is no longer needed and should be dropped if it exists.
+DROP TYPE IF EXISTS public.invoice_status;
+
+
+-- 1. Tables
+-- The `user_id` column is now nullable to allow anonymous data entry.
+-- Foreign key constraints are defined in a separate section below for clarity and easier script re-runs.
+
+-- Company Details Table (SINGLETON)
+CREATE TABLE public.company_details (
+    id smallint NOT NULL DEFAULT 1,
+    created_at timestamp with time zone NOT NULL DEFAULT now(),
+    name text,
+    slogan text,
+    address text,
+    gstin text,
+    account_name text,
+    account_number text,
+    account_type text,
+    bank_name text,
+    ifsc_code text,
+    CONSTRAINT company_details_pkey PRIMARY KEY (id),
+    CONSTRAINT company_details_singleton_check CHECK (id = 1),
+    CONSTRAINT company_details_gstin_format_check CHECK (gstin IS NULL OR gstin ~* '^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z]{1}[1-9A-Z]{1}Z[0-9A-Z]{1}$')
+);
+ALTER TABLE public.company_details ENABLE ROW LEVEL SECURITY;
+
+-- Customers Table
+CREATE TABLE public.customers (
+    id uuid NOT NULL DEFAULT gen_random_uuid(),
+    user_id uuid, -- Made nullable for public access
+    created_at timestamp with time zone NOT NULL DEFAULT now(),
+    name text NOT NULL,
+    email text,
+    phone text,
+    gst_pan text,
+    billing_address text,
+    is_guest boolean NOT NULL DEFAULT false,
+    CONSTRAINT customers_pkey PRIMARY KEY (id),
+    CONSTRAINT customers_name_key UNIQUE (name),
+    CONSTRAINT customers_gst_pan_format_check CHECK (gst_pan IS NULL OR gst_pan ~* '^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z]{1}[1-9A-Z]{1}Z[0-9A-Z]{1}$' OR gst_pan ~* '^[A-Z]{5}[0-9]{4}[A-Z]{1}$')
+);
+ALTER TABLE public.customers ENABLE ROW LEVEL SECURITY;
+
+-- Units Table
+CREATE TABLE public.units (
+    id uuid NOT NULL DEFAULT gen_random_uuid(),
+    user_id uuid, -- Nullable for public access
+    created_at timestamp with time zone NOT NULL DEFAULT now(),
+    name text NOT NULL,
+    abbreviation text NOT NULL,
+    CONSTRAINT units_pkey PRIMARY KEY (id),
+    CONSTRAINT units_abbreviation_key UNIQUE (abbreviation),
+    CONSTRAINT units_name_key UNIQUE (name)
+);
+ALTER TABLE public.units ENABLE ROW LEVEL SECURITY;
+
+-- Categories Table (NEW)
+CREATE TABLE public.categories (
+    id uuid NOT NULL DEFAULT gen_random_uuid(),
+    user_id uuid, -- Nullable for public access
+    created_at timestamp with time zone NOT NULL DEFAULT now(),
+    name text NOT NULL,
+    description text,
+    icon_name text,
+    CONSTRAINT categories_pkey PRIMARY KEY (id),
+    CONSTRAINT categories_name_key UNIQUE (name)
+);
+ALTER TABLE public.categories ENABLE ROW LEVEL SECURITY;
+
+-- Products Table
+CREATE TABLE public.products (
+    id uuid NOT NULL DEFAULT gen_random_uuid(),
+    user_id uuid, -- Made nullable for public access
+    created_at timestamp with time zone NOT NULL DEFAULT now(),
+    name text NOT NULL,
+    description text,
+    hsn_code text,
+    stock_quantity integer NOT NULL DEFAULT 0,
+    unit_price numeric NOT NULL,
+    tax_rate numeric NOT NULL,
+    unit_id uuid,
+    category_id uuid,
+    CONSTRAINT products_pkey PRIMARY KEY (id),
+    CONSTRAINT products_stock_quantity_check CHECK (stock_quantity >= 0),
+    CONSTRAINT products_unit_price_check CHECK (unit_price >= 0),
+    CONSTRAINT products_tax_rate_check CHECK (tax_rate >= 0 AND tax_rate <= 1),
+    CONSTRAINT products_name_key UNIQUE (name)
+);
+ALTER TABLE public.products ENABLE ROW LEVEL SECURITY;
+
+-- Purchases Table
+CREATE TABLE public.purchases (
+    id uuid NOT NULL DEFAULT gen_random_uuid(),
+    user_id uuid, -- Made nullable for public access
+    created_at timestamp with time zone NOT NULL DEFAULT now(),
+    product_id uuid NOT NULL,
+    purchase_date date NOT NULL,
+    reference_invoice text,
+    quantity integer NOT NULL,
+    CONSTRAINT purchases_pkey PRIMARY KEY (id),
+    CONSTRAINT purchases_quantity_check CHECK (quantity > 0)
+);
+ALTER TABLE public.purchases ENABLE ROW LEVEL SECURITY;
+
+-- Invoices Table
+CREATE TABLE public.invoices (
+    id uuid NOT NULL DEFAULT gen_random_uuid(),
+    user_id uuid, -- Made nullable for public access
+    created_at timestamp with time zone NOT NULL DEFAULT now(),
+    customer_id uuid, -- Now nullable for guest/anonymous invoices
+    invoice_number text NOT NULL,
+    invoice_date date NOT NULL,
+    notes text,
+    total_amount numeric NOT NULL DEFAULT 0,
+    CONSTRAINT invoices_pkey PRIMARY KEY (id),
+    CONSTRAINT invoices_invoice_number_key UNIQUE (invoice_number)
+);
+ALTER TABLE public.invoices ENABLE ROW LEVEL SECURITY;
+
+-- Invoice Items Table
+CREATE TABLE public.invoice_items (
+    id uuid NOT NULL DEFAULT gen_random_uuid(),
+    user_id uuid, -- Made nullable, populated by trigger
+    created_at timestamp with time zone NOT NULL DEFAULT now(),
+    invoice_id uuid NOT NULL,
+    product_id uuid NOT NULL,
+    quantity integer NOT NULL,
+    unit_price numeric NOT NULL,
+    tax_rate numeric NOT NULL,
+    CONSTRAINT invoice_items_pkey PRIMARY KEY (id),
+    CONSTRAINT invoice_items_quantity_check CHECK (quantity > 0),
+    CONSTRAINT invoice_items_unit_price_check CHECK (unit_price >= 0),
+    CONSTRAINT invoice_items_tax_rate_check CHECK (tax_rate >= 0 AND tax_rate <= 1)
+);
+ALTER TABLE public.invoice_items ENABLE ROW LEVEL SECURITY;
+
+
+-- 2. Foreign Key Constraints
+-- Define relationships after all tables are created.
+-- This makes the script easier to manage and re-run if needed.
+
+-- Drop existing constraints to ensure a clean slate
+ALTER TABLE public.products DROP CONSTRAINT IF EXISTS products_unit_id_fkey;
+ALTER TABLE public.products DROP CONSTRAINT IF EXISTS products_category_id_fkey;
+ALTER TABLE public.purchases DROP CONSTRAINT IF EXISTS purchases_product_id_fkey;
+ALTER TABLE public.invoices DROP CONSTRAINT IF EXISTS invoices_customer_id_fkey;
+ALTER TABLE public.invoice_items DROP CONSTRAINT IF EXISTS invoice_items_invoice_id_fkey;
+ALTER TABLE public.invoice_items DROP CONSTRAINT IF EXISTS invoice_items_product_id_fkey;
+
+-- Add fresh constraints
+ALTER TABLE public.products
+    ADD CONSTRAINT products_unit_id_fkey FOREIGN KEY (unit_id) REFERENCES public.units(id) ON DELETE SET NULL,
+    ADD CONSTRAINT products_category_id_fkey FOREIGN KEY (category_id) REFERENCES public.categories(id) ON DELETE SET NULL;
+
+ALTER TABLE public.purchases
+    ADD CONSTRAINT purchases_product_id_fkey FOREIGN KEY (product_id) REFERENCES public.products(id) ON DELETE RESTRICT;
+
+ALTER TABLE public.invoices
+    ADD CONSTRAINT invoices_customer_id_fkey FOREIGN KEY (customer_id) REFERENCES public.customers(id) ON DELETE RESTRICT;
+
+ALTER TABLE public.invoice_items
+    ADD CONSTRAINT invoice_items_invoice_id_fkey FOREIGN KEY (invoice_id) REFERENCES public.invoices(id) ON DELETE CASCADE,
+    ADD CONSTRAINT invoice_items_product_id_fkey FOREIGN KEY (product_id) REFERENCES public.products(id) ON DELETE RESTRICT;
+
+
+-- 3. Functions and Triggers
+-- These automate backend logic like calculations and data synchronization.
+
+-- Function to set user_id on invoice_items from the parent invoice (will propagate NULL if parent is anonymous).
+CREATE OR REPLACE FUNCTION public.set_invoice_item_user_id()
+RETURNS TRIGGER AS $$
+BEGIN
+    SELECT user_id INTO NEW.user_id
+    FROM public.invoices
+    WHERE id = NEW.invoice_id;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+-- Trigger for invoice_items user_id
+CREATE TRIGGER before_invoice_item_insert
+BEFORE INSERT ON public.invoice_items
+FOR EACH ROW
+EXECUTE FUNCTION public.set_invoice_item_user_id();
+
+-- Function to recalculate the entire invoice total from its items. This is more robust than an incremental approach.
+CREATE OR REPLACE FUNCTION public.recalculate_invoice_total()
+RETURNS TRIGGER AS $$
+DECLARE
+    invoice_to_update_id uuid;
+BEGIN
+    -- Determine which invoice ID to use for the update
+    IF (TG_OP = 'DELETE') THEN
+        invoice_to_update_id := OLD.invoice_id;
+    ELSE
+        invoice_to_update_id := NEW.invoice_id;
+    END IF;
+
+    -- Perform the recalculation for the affected invoice
+    UPDATE public.invoices
+    SET total_amount = (
+        SELECT COALESCE(SUM(quantity * unit_price * (1 + tax_rate)), 0)
+        FROM public.invoice_items
+        WHERE invoice_id = invoice_to_update_id
+    )
+    WHERE id = invoice_to_update_id;
+    
+    -- If an UPDATE operation moves an item to a different invoice, the old invoice must also be recalculated.
+    IF (TG_OP = 'UPDATE' AND NEW.invoice_id <> OLD.invoice_id) THEN
+        UPDATE public.invoices
+        SET total_amount = (
+            SELECT COALESCE(SUM(quantity * unit_price * (1 + tax_rate)), 0)
+            FROM public.invoice_items
+            WHERE invoice_id = OLD.invoice_id
+        )
+        WHERE id = OLD.invoice_id;
+    END IF;
+
+    RETURN NULL;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+-- Trigger for invoice totals (replaces the old incremental trigger)
+DROP TRIGGER IF EXISTS on_invoice_item_change ON public.invoice_items;
+CREATE TRIGGER on_invoice_item_change_recalculate
+AFTER INSERT OR UPDATE OR DELETE ON public.invoice_items
+FOR EACH ROW
+EXECUTE FUNCTION public.recalculate_invoice_total();
+
+-- Function to automatically update product stock levels when a purchase is recorded.
+CREATE OR REPLACE FUNCTION public.update_stock_on_purchase()
+RETURNS TRIGGER AS $$
+BEGIN
+    IF (TG_OP = 'INSERT') THEN
+        UPDATE public.products SET stock_quantity = stock_quantity + NEW.quantity WHERE id = NEW.product_id;
+    ELSIF (TG_OP = 'UPDATE') THEN
+        UPDATE public.products SET stock_quantity = stock_quantity - OLD.quantity + NEW.quantity WHERE id = NEW.product_id;
+    ELSIF (TG_OP = 'DELETE') THEN
+        UPDATE public.products SET stock_quantity = stock_quantity - OLD.quantity WHERE id = OLD.product_id;
+    END IF;
+    RETURN NULL;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+-- Trigger for stock from purchases
+CREATE TRIGGER on_purchase_change
+AFTER INSERT OR UPDATE OR DELETE ON public.purchases
+FOR EACH ROW
+EXECUTE FUNCTION public.update_stock_on_purchase();
+
+-- NEW: Function to update stock when an invoice item is created, updated, or deleted.
+CREATE OR REPLACE FUNCTION public.update_stock_on_sale()
+RETURNS TRIGGER AS $$
+BEGIN
+    IF (TG_OP = 'INSERT') THEN
+        -- Deduct stock when an item is added to an invoice
+        UPDATE public.products
+        SET stock_quantity = stock_quantity - NEW.quantity
+        WHERE id = NEW.product_id;
+    ELSIF (TG_OP = 'DELETE') THEN
+        -- Return stock when an item is removed from an invoice
+        UPDATE public.products
+        SET stock_quantity = stock_quantity + OLD.quantity
+        WHERE id = OLD.product_id;
+    ELSIF (TG_OP = 'UPDATE') THEN
+        -- Handle changes in quantity or product for the same item
+        IF OLD.product_id <> NEW.product_id THEN
+            -- Product was changed: restore stock for the old product, deduct for the new one
+            UPDATE public.products SET stock_quantity = stock_quantity + OLD.quantity WHERE id = OLD.product_id;
+            UPDATE public.products SET stock_quantity = stock_quantity - NEW.quantity WHERE id = NEW.product_id;
+        ELSE
+            -- Only quantity changed: adjust stock for the same product
+            UPDATE public.products
+            SET stock_quantity = stock_quantity + OLD.quantity - NEW.quantity
+            WHERE id = NEW.product_id;
+        END IF;
+    END IF;
+    RETURN NULL;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+-- NEW: Trigger for stock from sales, replacing the old status-based logic.
+CREATE TRIGGER on_sale_change
+AFTER INSERT OR UPDATE OR DELETE ON public.invoice_items
+FOR EACH ROW
+EXECUTE FUNCTION public.update_stock_on_sale();
+
+
+-- Function to get a combined, paginated report of sales and purchases.
+CREATE OR REPLACE FUNCTION get_combined_report(
+    p_start_date date, p_end_date date, p_transaction_type text, p_limit integer, p_offset integer
+)
+RETURNS TABLE (
+    transaction_id uuid, transaction_date date, transaction_type text,
+    reference_number text, product_name text, quantity_change integer
+) AS $$
+BEGIN
+    RETURN QUERY
+    WITH combined_transactions AS (
+        SELECT
+            ii.id AS transaction_id,
+            i.invoice_date AS transaction_date,
+            'Sale' AS transaction_type,
+            i.invoice_number AS reference_number,
+            p.name AS product_name,
+            -ii.quantity AS quantity_change
+        FROM public.invoice_items ii
+        JOIN public.invoices i ON ii.invoice_id = i.id
+        JOIN public.products p ON ii.product_id = p.id
+        WHERE (p_transaction_type = 'all' OR p_transaction_type = 'sale')
+          AND i.invoice_date BETWEEN p_start_date AND p_end_date
+        UNION ALL
+        SELECT
+            pu.id AS transaction_id,
+            pu.purchase_date AS transaction_date,
+            'Purchase' AS transaction_type,
+            pu.reference_invoice AS reference_number,
+            p.name AS product_name,
+            pu.quantity AS quantity_change
+        FROM public.purchases pu
+        JOIN public.products p ON pu.product_id = p.id
+        WHERE (p_transaction_type = 'all' OR p_transaction_type = 'purchase')
+          AND pu.purchase_date BETWEEN p_start_date AND p_end_date
+    )
+    SELECT ct.* FROM combined_transactions ct
+    ORDER BY ct.transaction_date DESC, ct.product_name ASC
+    LIMIT p_limit OFFSET p_offset;
+END;
+$$ LANGUAGE plpgsql;
+
+-- Function to get the total count for the combined report for pagination.
+CREATE OR REPLACE FUNCTION get_combined_report_count(
+    p_start_date date, p_end_date date, p_transaction_type text
+)
+RETURNS integer AS $$
+DECLARE total_count integer;
+BEGIN
+    SELECT count(*) INTO total_count FROM (
+        SELECT 1 FROM public.invoice_items ii
+        JOIN public.invoices i ON ii.invoice_id = i.id
+        WHERE (p_transaction_type = 'all' OR p_transaction_type = 'sale')
+          AND i.invoice_date BETWEEN p_start_date AND p_end_date
+        UNION ALL
+        SELECT 1 FROM public.purchases pu
+        WHERE (p_transaction_type = 'all' OR p_transaction_type = 'purchase')
+          AND pu.purchase_date BETWEEN p_start_date AND p_end_date
+    ) AS combined_transactions;
+    RETURN total_count;
+END;
+$$ LANGUAGE plpgsql;
+
+-- NEW: Function to export the full combined report without pagination.
+CREATE OR REPLACE FUNCTION export_combined_report(
+    p_start_date date, p_end_date date, p_transaction_type text
+)
+RETURNS TABLE (
+    transaction_date date,
+    transaction_type text,
+    reference_number text,
+    product_name text,
+    quantity_change integer
+) AS $$
+BEGIN
+    RETURN QUERY
+    WITH combined_transactions AS (
+        -- Sales
+        SELECT
+            i.invoice_date AS transaction_date,
+            'Sale' AS transaction_type,
+            i.invoice_number AS reference_number,
+            p.name AS product_name,
+            -ii.quantity AS quantity_change
+        FROM public.invoice_items ii
+        JOIN public.invoices i ON ii.invoice_id = i.id
+        JOIN public.products p ON ii.product_id = p.id
+        WHERE
+            (p_transaction_type = 'all' OR p_transaction_type = 'sale') AND
+            i.invoice_date BETWEEN p_start_date AND p_end_date
+        UNION ALL
+        -- Purchases
+        SELECT
+            pu.purchase_date AS transaction_date,
+            'Purchase' AS transaction_type,
+            pu.reference_invoice AS reference_number,
+            p.name AS product_name,
+            pu.quantity AS quantity_change
+        FROM public.purchases pu
+        JOIN public.products p ON pu.product_id = p.id
+        WHERE
+            (p_transaction_type = 'all' OR p_transaction_type = 'purchase') AND
+            pu.purchase_date BETWEEN p_start_date AND p_end_date
+    )
+    SELECT
+        ct.transaction_date,
+        ct.transaction_type,
+        ct.reference_number,
+        ct.product_name,
+        ct.quantity_change
+    FROM combined_transactions ct
+    ORDER BY ct.transaction_date DESC, ct.product_name ASC;
+END;
+$$ LANGUAGE plpgsql;
+
+-- NEW: Function to delete an invoice and its items atomically.
+CREATE OR REPLACE FUNCTION public.delete_invoice_by_id(p_invoice_id uuid)
+RETURNS text AS $$
+BEGIN
+    -- Deleting from the invoices table.
+    -- The `ON DELETE CASCADE` constraint on the `invoice_items` table
+    -- will automatically delete all associated items.
+    -- The `on_sale_change` trigger on the `invoice_items` table
+    -- will automatically fire for each deleted item, returning stock.
+    -- This entire operation occurs within a single transaction.
+    DELETE FROM public.invoices WHERE id = p_invoice_id;
+
+    IF NOT FOUND THEN
+        -- This case occurs if the invoice_id didn't exist
+        RAISE EXCEPTION 'Invoice with ID % not found.', p_invoice_id;
+    END IF;
+
+    RETURN 'Invoice and associated items deleted successfully.';
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+-- NEW: Function to safely delete a purchase, checking stock levels first.
+CREATE OR REPLACE FUNCTION public.delete_purchase_safely(p_purchase_id uuid)
+RETURNS text AS $$
+DECLARE
+    v_product_id uuid;
+    v_quantity integer;
+    v_current_stock integer;
+BEGIN
+    -- Get purchase details
+    SELECT product_id, quantity INTO v_product_id, v_quantity
+    FROM public.purchases
+    WHERE id = p_purchase_id;
+
+    IF NOT FOUND THEN
+        RAISE EXCEPTION 'Purchase with ID % not found.', p_purchase_id;
+    END IF;
+
+    -- Get current stock of the product
+    SELECT stock_quantity INTO v_current_stock
+    FROM public.products
+    WHERE id = v_product_id;
+
+    -- Check if deleting this purchase would result in negative stock
+    IF (v_current_stock - v_quantity) < 0 THEN
+        RAISE EXCEPTION 'Cannot delete this purchase. Deleting it would result in a negative stock level for the product. Please adjust sales records first.';
+    END IF;
+
+    -- If the check passes, delete the purchase
+    -- The trigger `on_purchase_change` will handle the stock update.
+    DELETE FROM public.purchases WHERE id = p_purchase_id;
+
+    RETURN 'Purchase record deleted successfully.';
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+
+-- 4. Row Level Security Policies
+-- These policies grant full access to anonymous and authenticated users, which is necessary
+-- for the application's API key (anon role) to perform database operations.
+
+-- Drop old policies if they exist with the old name or new name for idempotency.
+DROP POLICY IF EXISTS "Enable public full access for company details" ON "public"."company_details";
+DROP POLICY IF EXISTS "Enable full access for anon and authenticated users" ON "public"."company_details";
+DROP POLICY IF EXISTS "Enable public full access for all customers" ON "public"."customers";
+DROP POLICY IF EXISTS "Enable full access for anon and authenticated users" ON "public"."customers";
+DROP POLICY IF EXISTS "Enable public full access for all units" ON "public"."units";
+DROP POLICY IF EXISTS "Enable full access for anon and authenticated users" ON "public"."units";
+DROP POLICY IF EXISTS "Enable public full access for all categories" ON "public"."categories";
+DROP POLICY IF EXISTS "Enable full access for anon and authenticated users" ON "public"."categories";
+DROP POLICY IF EXISTS "Enable public full access for all products" ON "public"."products";
+DROP POLICY IF EXISTS "Enable full access for anon and authenticated users" ON "public"."products";
+DROP POLICY IF EXISTS "Enable public full access for all purchases" ON "public"."purchases";
+DROP POLICY IF EXISTS "Enable full access for anon and authenticated users" ON "public"."purchases";
+DROP POLICY IF EXISTS "Enable public full access for all invoices" ON "public"."invoices";
+DROP POLICY IF EXISTS "Enable full access for anon and authenticated users" ON "public"."invoices";
+DROP POLICY IF EXISTS "Enable public full access for all invoice items" ON "public"."invoice_items";
+DROP POLICY IF EXISTS "Enable full access for anon and authenticated users" ON "public"."invoice_items";
+
+-- Create new, correct policies
+CREATE POLICY "Enable full access for anon and authenticated users" ON "public"."company_details" FOR ALL TO anon, authenticated USING (true) WITH CHECK (true);
+CREATE POLICY "Enable full access for anon and authenticated users" ON "public"."customers" FOR ALL TO anon, authenticated USING (true) WITH CHECK (true);
+CREATE POLICY "Enable full access for anon and authenticated users" ON "public"."units" FOR ALL TO anon, authenticated USING (true) WITH CHECK (true);
+CREATE POLICY "Enable full access for anon and authenticated users" ON "public"."categories" FOR ALL TO anon, authenticated USING (true) WITH CHECK (true);
+CREATE POLICY "Enable full access for anon and authenticated users" ON "public"."products" FOR ALL TO anon, authenticated USING (true) WITH CHECK (true);
+CREATE POLICY "Enable full access for anon and authenticated users" ON "public"."purchases" FOR ALL TO anon, authenticated USING (true) WITH CHECK (true);
+CREATE POLICY "Enable full access for anon and authenticated users" ON "public"."invoices" FOR ALL TO anon, authenticated USING (true) WITH CHECK (true);
+CREATE POLICY "Enable full access for anon and authenticated users" ON "public"."invoice_items" FOR ALL TO anon, authenticated USING (true) WITH CHECK (true);
+
+
+-- 5. Seed Data (Optional)
+INSERT INTO public.categories (name, description, icon_name) VALUES
+('Fertilizers', 'Nutrients for plant growth', 'Leaf'),
+('Organic Fertilizers', 'Natural fertilizers derived from plant or animal matter', 'Sprout'),
+('Chemical Fertilizers (Urea, DAP, NPK)', 'Synthetic fertilizers providing specific nutrients', 'FlaskConical'),
+('Micronutrients', 'Essential elements required by plants in small quantities', 'TestTube2'),
+('Pesticides & Crop Protection', 'Chemicals to control pests, diseases, and weeds', 'Shield'),
+('Insecticides', 'Substances used to kill insects', 'Bug'),
+('Fungicides', 'Biocidal chemical compounds used to kill parasitic fungi', 'SunSnow'),
+('Herbicides', 'Substances that are toxic to plants, used to destroy unwanted vegetation', 'Ban'),
+('Bio-Pesticides', 'Pesticides derived from natural materials like animals, plants, bacteria', 'Trees')
+ON CONFLICT (name) DO UPDATE SET description = EXCLUDED.description, icon_name = EXCLUDED.icon_name;
