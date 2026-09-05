@@ -279,10 +279,14 @@ const DashboardPage: React.FC = () => {
                     dy={10}
                 />
                 <YAxis 
+                    allowDecimals={false}
                     axisLine={false} 
                     tickLine={false} 
                     tick={{ fill: '#94a3b8', fontSize: 12, fontWeight: 500 }}
-                    tickFormatter={(value) => `₹${value}`}
+                    tickFormatter={(value) => {
+                        if (value === 0) return '₹0';
+                        return `₹${value >= 1000 ? (value / 1000).toFixed(1) + 'k' : value}`;
+                    }}
                 />
                 <Tooltip content={<CustomTooltip />} cursor={{ fill: '#f8fafc', opacity: 0.5 }} />
                 <Legend iconType="circle" />

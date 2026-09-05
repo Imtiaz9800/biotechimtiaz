@@ -58,43 +58,53 @@ const fetchProducts = async (): Promise<Product[]> => {
 };
 
 const fetchLastInvoiceNumber = async (): Promise<string | null> => {
+  const savedSettings = localStorage.getItem('invoiceSettings');
+  let prefix = 'INV-';
+  let suffix = '';
+  let padding = 3;
+  if (savedSettings) {
+      try {
+          const parsed = JSON.parse(savedSettings);
+          prefix = parsed.prefix ?? 'INV-';
+          suffix = parsed.suffix ?? '';
+          padding = parsed.padding ?? 3;
+      } catch (e) {
+          // fallback
+      }
+  }
+
   const { data, error } = await supabase
     .from('invoices')
-    .select('invoice_number');
+    .select('invoice_number')
+    .order('created_at', { ascending: false })
+    .limit(1000);
   
   if (error) throw error;
-  if (!data || data.length === 0) return null;
-
+  
+  const existingNumbers = new Set((data || []).map(d => d.invoice_number));
+  
   let maxNum = 0;
-  let maxPrefix = 'INV';
-  let foundNumeric = false;
 
-  data.forEach(row => {
-    if (row.invoice_number) {
-      const parts = row.invoice_number.split('-');
-      if (parts.length === 2 && !isNaN(parseInt(parts[1]))) {
-        const num = parseInt(parts[1]);
-        if (num > maxNum) {
-          maxNum = num;
-          maxPrefix = parts[0];
-          foundNumeric = true;
+  (data || []).forEach(row => {
+    if (row.invoice_number && row.invoice_number.startsWith(prefix) && row.invoice_number.endsWith(suffix)) {
+        // Extract the middle part
+        const middle = row.invoice_number.substring(prefix.length, row.invoice_number.length - suffix.length);
+        const parsed = parseInt(middle, 10);
+        if (!isNaN(parsed) && parsed > maxNum) {
+            maxNum = parsed;
         }
-      }
     }
   });
 
-  if (!foundNumeric) {
-    // Fallback: just get the latest by created_at if we can't parse numbers
-    const { data: latestData } = await supabase
-      .from('invoices')
-      .select('invoice_number')
-      .order('created_at', { ascending: false })
-      .limit(1)
-      .single();
-    return latestData?.invoice_number || null;
+  let num = maxNum + 1;
+  let nextInvoiceNum = `${prefix}${num.toString().padStart(padding, '0')}${suffix}`;
+  
+  while (existingNumbers.has(nextInvoiceNum)) {
+    num++;
+    nextInvoiceNum = `${prefix}${num.toString().padStart(padding, '0')}${suffix}`;
   }
-
-  return `${maxPrefix}-${maxNum.toString().padStart(3, '0')}`;
+  
+  return nextInvoiceNum;
 };
 
 const upsertInvoice = async ({ formData, id }: { formData: FormValues, id?: string }) => {
@@ -236,15 +246,8 @@ const InvoiceForm: React.FC<InvoiceFormProps> = ({ invoice, onSuccess, onCancel 
                 items: formattedItems
             });
         } else {
-            const nextNum = await fetchLastInvoiceNumber();
-            let nextInvoiceNum = 'INV-001';
-            if (nextNum) {
-                const parts = nextNum.split('-');
-                if (parts.length === 2 && !isNaN(parseInt(parts[1]))) {
-                    const num = parseInt(parts[1]) + 1;
-                    nextInvoiceNum = `${parts[0]}-${num.toString().padStart(3, '0')}`;
-                }
-            }
+            const nextInvoiceNum = await fetchLastInvoiceNumber() || 'INV-001';
+            
             reset({
                 customer_mode: 'existing',
                 customer_id: null,
@@ -287,9 +290,9 @@ const InvoiceForm: React.FC<InvoiceFormProps> = ({ invoice, onSuccess, onCancel 
       queryClient.invalidateQueries({ queryKey: ['stock'] }); 
       onSuccess();
     },
-    onError: (error: any) => {
+    onError: (error: any, variables: any) => {
       if (error?.message?.includes('invoices_invoice_number_key') || error?.code === '23505') {
-        toast("Invoice number already exists. Please choose a different, unique invoice number.");
+        toast(`Invoice number "${variables.formData.invoice_number}" already exists in your history. Please use a unique number.`);
       } else {
         toast(`Error: ${error.message}`);
       }

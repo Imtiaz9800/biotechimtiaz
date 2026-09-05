@@ -15,6 +15,7 @@ import UnitsPage from './pages/UnitsPage';
 import CategoriesPage from './pages/CategoriesPage';
 import ProductStockReportPage from './pages/ProductStockReportPage';
 import CompanySettingsPage from './pages/CompanySettingsPage';
+import InvoiceSettingsPage from './pages/InvoiceSettingsPage';
 import CreateInvoicePage from './pages/CreateInvoicePage';
 import ImportExportPage from './pages/ImportExportPage';
 import PasswordProtectPage from './pages/PasswordProtectPage';
@@ -56,6 +57,7 @@ const App: React.FC = () => {
           <Route path="settings/units" element={<UnitsPage />} />
           <Route path="settings/categories" element={<CategoriesPage />} />
           <Route path="settings/company" element={<CompanySettingsPage />} />
+          <Route path="settings/invoice-preferences" element={<InvoiceSettingsPage />} />
           <Route path="settings/import-export" element={<ImportExportPage />} />
           <Route path="*" element={<Navigate to="/dashboard" replace />} />
         </Route>

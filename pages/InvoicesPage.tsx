@@ -36,7 +36,7 @@ const fetchInvoices = async (page: number, searchTerm: string): Promise<{ data: 
     .select('*, customers(name)', { count: 'exact' });
   
   if (searchTerm) {
-    query = query.or(`invoice_number.ilike.%${searchTerm}%,customers.name.ilike.%${searchTerm}%`);
+    query = query.ilike('invoice_number', `%${searchTerm}%`);
   }
     
   const { data, error, count } = await query

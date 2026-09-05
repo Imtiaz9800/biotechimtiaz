@@ -1,7 +1,7 @@
 import React from 'react';
 import { Link } from 'react-router-dom';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/Card';
-import { Building, LayoutGrid, Ruler, UploadCloud, ChevronRight } from 'lucide-react';
+import { Building, LayoutGrid, Ruler, UploadCloud, ChevronRight, FileText } from 'lucide-react';
 
 const settingsOptions = [
   {
@@ -9,6 +9,12 @@ const settingsOptions = [
     description: 'Update your company details, GSTIN, and address.',
     icon: <Building className="w-6 h-6 text-slate-500" />,
     href: '/settings/company',
+  },
+  {
+    title: 'Invoice Preferences',
+    description: 'Configure invoice numbering formats, prefixes, and suffixes.',
+    icon: <FileText className="w-6 h-6 text-slate-500" />,
+    href: '/settings/invoice-preferences',
   },
   {
     title: 'Categories',
